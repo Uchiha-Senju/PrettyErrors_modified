@@ -4,7 +4,7 @@ output_stderr = sys.stderr
 terminal_is_interactive = sys.stderr.isatty()
 
 name = "pretty_errors"
-__version__ = "1.2.25"  # remember to update version in setup.py!
+__version__ = "1.2.23"  # remember to update version in setup.py!
 
 active = 'PYTHON_PRETTY_ERRORS' not in os.environ or os.environ['PYTHON_PRETTY_ERRORS'] != '0'
 interactive_tty_only = 'PYTHON_PRETTY_ERRORS_ISATTY_ONLY' in os.environ and os.environ['PYTHON_PRETTY_ERRORS_ISATTY_ONLY'] != '0'
@@ -13,6 +13,9 @@ interactive_tty_only = 'PYTHON_PRETTY_ERRORS_ISATTY_ONLY' in os.environ and os.e
 FILENAME_COMPACT  = 0
 FILENAME_EXTENDED = 1
 FILENAME_FULL     = 2
+FILENAME_ORIGINAL = 3
+
+TAB_STRING = '  '
 
 RESET_COLOR = '\033[m'
 
@@ -56,16 +59,17 @@ class PrettyErrorsConfig():
             self.name                      = "default"
             self.line_length               = 0
             self.full_line_newline         = False
-            self.filename_display          = FILENAME_COMPACT
+            self.filename_display          = FILENAME_ORIGINAL
             self.display_timestamp         = False
             try:
                 self.timestamp_function    = time.perf_counter
             except AttributeError:
                 self.timestamp_function    = time.time
             self.display_link              = False
-            self.separator_character       = '-'
+            self.separator_character       = '=|='
             self.line_number_first         = False
             self.top_first                 = False
+            self.display_traceback_message = True
             self.always_display_bottom     = True
             self.stack_depth               = 0
             self.exception_above           = False
@@ -74,7 +78,7 @@ class PrettyErrorsConfig():
             self.trace_lines_after         = 0
             self.lines_before              = 0
             self.lines_after               = 0
-            self.display_locals            = False
+            self.display_locals            = True
             self.display_trace_locals      = False
             self.truncate_locals           = True
             self.truncate_code             = False
@@ -83,6 +87,7 @@ class PrettyErrorsConfig():
             self.arrow_head_character      = '^'
             self.header_color              = GREY
             self.timestamp_color           = GREY
+            self.traceback_message_color   = RED
             self.line_color                = BRIGHT_WHITE
             self.code_color                = GREY
             self.filename_color            = BRIGHT_CYAN
@@ -98,7 +103,7 @@ class PrettyErrorsConfig():
             self.syntax_error_color        = BRIGHT_GREEN
             self.arrow_tail_color          = BRIGHT_GREEN
             self.arrow_head_color          = BRIGHT_GREEN
-            self.inner_exception_message   = None
+            self.inner_exception_message   = MAGENTA + "\n During handling of the above exception, another exception occurred:\n"
             self.inner_exception_separator = False
             self.prefix                    = None
             self.infix                     = None
@@ -116,6 +121,7 @@ class PrettyErrorsConfig():
             self.separator_character       = instance.separator_character
             self.line_number_first         = instance.line_number_first
             self.top_first                 = instance.top_first
+            self.display_traceback_message = instance.display_traceback_message
             self.always_display_bottom     = instance.always_display_bottom
             self.stack_depth               = instance.stack_depth
             self.exception_above           = instance.exception_above
@@ -133,6 +139,7 @@ class PrettyErrorsConfig():
             self.arrow_head_character      = instance.arrow_head_character
             self.header_color              = instance.header_color
             self.timestamp_color           = instance.timestamp_color
+            self.traceback_message_color   = instance.traceback_message_color
             self.line_color                = instance.line_color
             self.code_color                = instance.code_color
             self.filename_color            = instance.filename_color
@@ -175,6 +182,7 @@ class PrettyErrorsConfig():
         c.separator_character       = self.separator_character
         c.line_number_first         = self.line_number_first
         c.top_first                 = self.top_first
+        c.display_traceback_message = self.display_traceback_message
         c.always_display_bottom     = self.always_display_bottom
         c.stack_depth               = self.stack_depth
         c.exception_above           = self.exception_above
@@ -192,6 +200,7 @@ class PrettyErrorsConfig():
         c.arrow_head_character      = self.arrow_head_character
         c.header_color              = self.header_color
         c.timestamp_color           = self.timestamp_color
+        c.traceback_message_color   = self.traceback_message_color
         c.line_color                = self.line_color
         c.code_color                = self.code_color
         c.filename_color            = self.filename_color
@@ -203,7 +212,7 @@ class PrettyErrorsConfig():
         c.local_len_color           = self.local_len_color
         c.exception_color           = self.exception_color
         c.exception_arg_color       = self.exception_arg_color
-        c.exception_file_color       = self.exception_file_color
+        c.exception_file_color      = self.exception_file_color
         c.syntax_error_color        = self.syntax_error_color
         c.arrow_tail_color          = self.arrow_tail_color
         c.arrow_head_color          = self.arrow_head_color
@@ -234,6 +243,7 @@ def configure(
         display_link              = None,
         display_locals            = None,
         display_timestamp         = None,
+        display_traceback_message = None,
         display_trace_locals      = None,
         exception_above           = None,
         exception_arg_color       = None,
@@ -269,6 +279,7 @@ def configure(
         timestamp_color           = None,
         timestamp_function        = None,
         top_first                 = None,
+        traceback_message_color   = None,
         trace_lines_after         = None,
         trace_lines_before        = None,
         truncate_code             = None,
@@ -286,6 +297,7 @@ def configure(
         display_link              = display_link,
         display_locals            = display_locals,
         display_timestamp         = display_timestamp,
+        display_traceback_message = display_traceback_message,
         display_trace_locals      = display_trace_locals,
         exception_above           = exception_above,
         exception_arg_color       = exception_arg_color,
@@ -321,6 +333,7 @@ def configure(
         timestamp_color           = timestamp_color,
         timestamp_function        = timestamp_function,
         top_first                 = top_first,
+        traceback_message_color   = traceback_message_color,
         trace_lines_after         = trace_lines_after,
         trace_lines_before        = trace_lines_before,
         truncate_code             = truncate_code,
@@ -393,15 +406,14 @@ class ExceptionWriter():
     def get_terminal_width(self):
         """Width of terminal in characters."""
         try:
-            width = os.get_terminal_size()[0]
-            return 79 if width <= 0 else width
+            return os.get_terminal_size()[0]
         except Exception:
             return 79
 
 
     def get_line_length(self):
         """Calculated line length."""
-        if self.config.line_length <= 0:
+        if self.config.line_length == 0:
             return self.get_terminal_width()
         else:
             return self.config.line_length
@@ -445,9 +457,9 @@ class ExceptionWriter():
         line_length = self.get_line_length()
         if self.config.display_timestamp:
             timestamp = str(self.config.timestamp_function())
-            separator = (line_length - len(timestamp)) * self.config.separator_character + timestamp
+            separator = ((line_length - len(timestamp)) // len(self.config.separator_character) ) * self.config.separator_character + timestamp
         else:
-            separator = line_length * self.config.separator_character
+            separator = (line_length // len(self.config.separator_character)) * self.config.separator_character
         self.output_text('')
         self.output_text([self.config.header_color, separator])
 
@@ -466,11 +478,17 @@ class ExceptionWriter():
             self.config.link_color
         """
         line_number = str(line) + ' '
-        self.output_text('')
+        #self.output_text('') #Why tho, the traceback thing i added takes care of that, so do many other things
         if self.config.filename_display == FILENAME_FULL:
             filename = ""
             self.output_text([self.config.filename_color, path])
             self.output_text([self.config.line_number_color, line_number, self.config.function_color, function])
+        elif self.config.filename_display == FILENAME_ORIGINAL :
+            self.output_text([
+                self.config.filename_color, TAB_STRING, "File \"%s\"," % path,
+                self.config.line_number_color, " line %s" % line_number,
+                self.config.function_color, "in %s" % function
+            ])
         else:
             if self.config.filename_display == FILENAME_EXTENDED:
                 line_length = self.get_line_length()
@@ -503,6 +521,16 @@ class ExceptionWriter():
         """
 
         self.output_text([self.config.link_color, '"%s", line %s' % (filepath, line)])
+    
+    def write_traceback_message(self) :
+        """ Write the standard traceback message, along with info on the stack ordering
+        
+        Should make use of :
+            self.config.traceback_message_color
+            self.config.top_first""" 
+        self.output_text([self.config.traceback_message_color, 'Traceback (', 
+                          'latest call -> oldest call' if self.config.top_first else 'oldest call -> latest call', 
+                          ') :'])
 
 
     def write_code(self, filepath, line, module_globals, is_final, point_at = None):
@@ -567,6 +595,7 @@ class ExceptionWriter():
         line_length = self.get_line_length()
 
         for i, line in enumerate(lines):
+            line = 2 * TAB_STRING + line
             if i == target_line:
                 color = self.config.line_color
                 if point_at is not None:
@@ -592,7 +621,7 @@ class ExceptionWriter():
                 ])
                 if self.config.display_arrow:
                     self.output_text([
-                        self.config.arrow_tail_color, self.config.arrow_tail_character * point_at,
+                        2 * TAB_STRING, self.config.arrow_tail_color, self.config.arrow_tail_character * point_at,
                         self.config.arrow_head_color, self.config.arrow_head_character
                     ])
             else:
@@ -618,20 +647,32 @@ class ExceptionWriter():
             self.config.exception_arg_color
         """
         if exception_value and len(exception_value.args) > 0:
+            exception_name_string = self.exception_name(exception_type) + ': '
             output = [
-                self.config.exception_color, self.exception_name(exception_type), ':\n',
-                self.config.exception_arg_color, '\n'.join((str(x) for x in exception_value.args))
+                self.config.exception_color, exception_name_string,
+                self.config.exception_arg_color, ('\n' + ' ' * min(10, len(exception_name_string)) ).join((str(x) for x in exception_value.args))
             ]
         else:
             output = [self.config.exception_color, self.exception_name(exception_type)]
-
+            
+        offending_file_string = "Involved file(s)/path(s) : "
+        if any(hasattr(exception_value, attr) and getattr(exception_value, attr) is not None 
+                  for attr in ("filename", "filename2")) : 
+          output.append('\n')
+          output.append(self.config.exception_file_color)
+          output.append(offending_file_string)
+        first_file = True
+          
         for attr in ("filename", "filename2"):
             if hasattr(exception_value, attr):
                 path = getattr(exception_value, attr)
                 if path is not None:
-                    output.append('\n')
+                    if not first_file :
+                      output.append('\n')
+                      output.append(len(offending_file_string) * ' ')
                     output.append(self.config.exception_file_color)
                     output.append(path)
+                    first_file = False
 
         self.output_text(output)
 
@@ -643,7 +684,7 @@ exception_writer = ExceptionWriter()
 
 def excepthook(exception_type, exception_value, traceback):
     "Replaces sys.excepthook to output pretty errors."
-
+    
     writer = exception_writer
     writer.config = writer.default_config = config
 
@@ -679,12 +720,13 @@ def excepthook(exception_type, exception_value, traceback):
     syntax_error_info = None
     if exception_type == SyntaxError:
         syntax_error_info = exception_value.args[1]
-        exception_value.args = [exception_value.args[0]]
+        # exception_value.args = [exception_value.args[0]] #Why? just print the msg
+        exception_value.args = [exception_value.msg]
 
     if writer.config.exception_above:
         writer.output_text('')
         writer.write_exception(exception_type, exception_value)
-
+    
     if syntax_error_info:
         check_for_pathed_config(os.path.normpath(syntax_error_info[0]).lower())
         writer.write_location(syntax_error_info[0], syntax_error_info[1], '')
@@ -710,7 +752,10 @@ def excepthook(exception_type, exception_value, traceback):
                 else:
                     tracebacks.append(traceback)
             traceback = traceback.tb_next
-
+        
+        if writer.config.display_traceback_message :
+            writer.write_traceback_message()
+        
         if writer.config.top_first:
             tracebacks.reverse()
             if writer.config.stack_depth > 0:
